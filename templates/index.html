@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Arm</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 1rem; max-width: 700px; margin: auto; }
+  h3 { font-size: 13px; color: #888; font-weight: 400; margin-bottom: 10px; text-transform: lowercase; }
+  .card { background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 12px; }
+  #emergency { width: 100%; padding: 14px; background: #c0392b; color: #fff; border: none; border-radius: 10px; font-size: 17px; cursor: pointer; margin-bottom: 12px; }
+  #emergency.resumed { background: #27ae60; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; margin-bottom: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #27ae60; }
+  .dot.red { background: #c0392b; }
+  img#cam { width: 100%; border-radius: 8px; border: 1px solid #2a2a2a; display: block; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cpill { width: 36px; height: 36px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
+  .cpill.active { border-color: #fff; }
+  .spill { flex: 1; padding: 8px 4px; border: 1px solid #2a2a2a; border-radius: 8px; cursor: pointer; text-align: center; font-size: 12px; color: #888; background: #1c1c1c; }
+  .spill.active { border-color: #555; color: #eee; background: #252525; }
+  .joypad { display: grid; grid-template-columns: repeat(3, 52px); gap: 6px; justify-content: center; margin: 8px 0; }
+  .jbtn { width: 52px; height: 52px; border: 1px solid #2a2a2a; border-radius: 8px; background: #1c1c1c; color: #eee; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .jbtn:active { background: #2a2a2a; }
+  .jbtn.empty { border: none; background: transparent; pointer-events: none; }
+  .row { display: flex; gap: 10px; }
+  .gbtn { flex: 1; padding: 12px; border: 1px solid #2a2a2a; border-radius: 8px; background: #1c1c1c; color: #eee; font-size: 14px; cursor: pointer; }
+  .gbtn:active { background: #252525; }
+  input[type=range] { width: 100%; accent-color: #555; }
+  .log { background: #111; border-radius: 8px; padding: 10px 12px; font-size: 12px; font-family: monospace; max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  .log-entry { display: flex; gap: 8px; }
+  .log-time { color: #555; }
+  .ok { color: #27ae60; }
+  .err { color: #c0392b; }
+  .warn { color: #f39c12; }
+  .auto-btn { width: 100%; padding: 10px; border: 1px solid #2a2a2a; border-radius: 8px; background: #1c1c1c; color: #888; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
+  .auto-btn.on { background: #1a3a2a; color: #27ae60; border-color: #27ae60; }
+</style>
+</head>
+<body>
+
+<button id="emergency" onclick="togglePause()">⏹ emergency stop</button>
+<div class="status"><div class="dot" id="sdot"></div><span id="stxt">ready</span></div>
+
+<div class="card">
+  <h3>camera feed</h3>
+  <img id="cam" src="/video" alt="camera">
+</div>
+
+<div class="card">
+  <h3>target color</h3>
+  <div class="pills" id="cpills">
+    <div class="cpill active" style="background:#e74c3c" data-c="red" onclick="setColor(this)"></div>
+    <div class="cpill" style="background:#3498db" data-c="blue" onclick="setColor(this)"></div>
+    <div class="cpill" style="background:#2ecc71" data-c="green" onclick="setColor(this)"></div>
+    <div class="cpill" style="background:#f1c40f" data-c="yellow" onclick="setColor(this)"></div>
+  </div>
+  <h3 style="margin-top:14px;">target shape</h3>
+  <div class="pills" id="spills">
+    <div class="spill active" data-s="cube" onclick="setShape(this)">cube</div>
+    <div class="spill" data-s="sphere" onclick="setShape(this)">sphere</div>
+    <div class="spill" data-s="cylinder" onclick="setShape(this)">cylinder</div>
+    <div class="spill" data-s="any" onclick="setShape(this)">any</div>
+  </div>
+  <div style="margin-top:12px;">
+    <button class="auto-btn" id="autobtn" onclick="toggleAuto()">▶ start auto pick</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>manual control</h3>
+  <div class="joypad">
+    <div class="jbtn empty"></div>
+    <div class="jbtn" onclick="jog('forward')">↑</div>
+    <div class="jbtn empty"></div>
+    <div class="jbtn" onclick="jog('left')">←</div>
+    <div class="jbtn empty" style="font-size:11px;color:#555;">home</div>
+    <div class="jbtn" onclick="jog('right')">→</div>
+    <div class="jbtn empty"></div>
+    <div class="jbtn" onclick="jog('back')">↓</div>
+    <div class="jbtn empty"></div>
+  </div>
+  <div class="row" style="margin:8px 0;">
+    <div class="jbtn" style="flex:1;width:auto;" onclick="jog('up')">↑ up</div>
+    <div class="jbtn" style="flex:1;width:auto;" onclick="jog('down')">↓ down</div>
+  </div>
+  <div class="row" style="margin-bottom:12px;">
+    <button class="gbtn" onclick="grip('open')">◁ open gripper</button>
+    <button class="gbtn" onclick="grip('close')">▷ close gripper</button>
+  </div>
+  <h3>speed — <span id="spd-label">50%</span></h3>
+  <input type="range" min="1" max="100" value="50" step="1"
+         oninput="setSpeed(this.value)">
+</div>
+
+<div class="card">
+  <h3>log</h3>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+const socket = io();
+let paused = false;
+let auto = false;
+let logT = 0;
+
+socket.on('log', d => addLog(d.msg, d.type || 'ok'));
+
+function addLog(msg, type='ok') {
+  logT++;
+  const log = document.getElementById('log');
+  const s = `<div class="log-entry"><span class="log-time">${String(logT).padStart(3,'0')}</span><span class="${type}">${msg}</span></div>`;
+  log.insertAdjacentHTML('beforeend', s);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function api(path, body) {
+  const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  return r.json();
+}
+
+function togglePause() {
+  api('/api/pause', {}).then(d => {
+    paused = d.paused;
+    document.getElementById('emergency').textContent = paused ? '▶ resume' : '⏹ emergency stop';
+    document.getElementById('emergency').classList.toggle('resumed', !paused);
+    document.getElementById('sdot').classList.toggle('red', paused);
+    document.getElementById('stxt').textContent = paused ? 'paused' : 'running';
+  });
+}
+
+function setColor(el) {
+  document.querySelectorAll('.cpill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  api('/api/target', { color: el.dataset.c });
+}
+
+function setShape(el) {
+  document.querySelectorAll('.spill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  api('/api/target', { shape: el.dataset.s });
+}
+
+function toggleAuto() {
+  api('/api/auto', {}).then(d => {
+    auto = d.auto;
+    const btn = document.getElementById('autobtn');
+    btn.textContent = auto ? '⏹ stop auto pick' : '▶ start auto pick';
+    btn.classList.toggle('on', auto);
+  });
+}
+
+function jog(dir) { api('/api/jog', { direction: dir }); }
+function grip(a) { api('/api/gripper', { action: a }); }
+function setSpeed(v) {
+  document.getElementById('spd-label').textContent = v + '%';
+  api('/api/speed', { speed: v });
+}
+
+addLog('ui loaded · connecting to arm', 'ok');
+</script>
+</body>
+</html>
