@@ -1,28 +1,32 @@
 // ============================================================
 //  EEZYbotARM MK3 — Arduino Sketch
-//  Serial commands from Raspberry Pi @ 9600 baud
+//  Serial commands van Raspberry Pi @ 9600 baud
+//
 //  Servo wiring:
 //    Base     → pin 9
 //    Shoulder → pin 10
 //    Elbow    → pin 11
 //    Gripper  → pin 6
+//
+//  Nieuwe PICK syntax:
+//    PICK px py drop_base drop_shoulder drop_elbow
+//  Drop-posities komen nu vanuit app.py (config.txt),
+//  dus de Arduino hoeft ze niet meer hardcoded te hebben.
 // ============================================================
 
 #include <Servo.h>
 
-// --- Servo objects ---
 Servo servoBase;
 Servo servoShoulder;
 Servo servoElbow;
 Servo servoGripper;
 
-// --- Servo pins ---
 #define PIN_BASE      9
 #define PIN_SHOULDER  10
 #define PIN_ELBOW     11
 #define PIN_GRIPPER   6
 
-// --- Soft limits (degrees) — tune these for your build ---
+// Servo limieten (graden)
 #define BASE_MIN       10
 #define BASE_MAX       170
 #define SHOULDER_MIN   40
@@ -32,31 +36,24 @@ Servo servoGripper;
 #define GRIPPER_OPEN   30
 #define GRIPPER_CLOSED 100
 
-// --- Home position ---
+// Home positie
 #define HOME_BASE      90
 #define HOME_SHOULDER  90
 #define HOME_ELBOW     90
 
-// --- Drop-off position (where arm places the object) ---
-#define DROP_BASE      170
-#define DROP_SHOULDER  80
-#define DROP_ELBOW     100
-
-// --- State ---
 int posBase     = HOME_BASE;
 int posShoulder = HOME_SHOULDER;
 int posElbow    = HOME_ELBOW;
 int posGripper  = GRIPPER_OPEN;
-int moveSpeed   = 50;   // 1–100
+int moveSpeed   = 50;
 bool isStopped  = false;
 
 // ============================================================
-//  Smooth single-servo move
+//  Smooth servo beweging
 // ============================================================
 void smoothMove(Servo& s, int& current, int target, int minV, int maxV) {
   target = constrain(target, minV, maxV);
-  int step = (target >= current) ? 1 : -1;
-  // Map speed 1-100 to delay 18-2 ms per degree
+  int step    = (target >= current) ? 1 : -1;
   int delayMs = map(moveSpeed, 1, 100, 18, 2);
   while (current != target) {
     current += step;
@@ -65,16 +62,15 @@ void smoothMove(Servo& s, int& current, int target, int minV, int maxV) {
   }
 }
 
-// Shorthand wrappers
 void moveBase(int deg)     { smoothMove(servoBase,     posBase,     deg, BASE_MIN,     BASE_MAX);     }
 void moveShoulder(int deg) { smoothMove(servoShoulder, posShoulder, deg, SHOULDER_MIN, SHOULDER_MAX); }
 void moveElbow(int deg)    { smoothMove(servoElbow,    posElbow,    deg, ELBOW_MIN,    ELBOW_MAX);     }
-void moveGripper(int deg)  { posGripper = constrain(deg, GRIPPER_OPEN, GRIPPER_CLOSED);
-                             servoGripper.write(posGripper); delay(400); }
+void moveGripper(int deg)  {
+  posGripper = constrain(deg, GRIPPER_OPEN, GRIPPER_CLOSED);
+  servoGripper.write(posGripper);
+  delay(400);
+}
 
-// ============================================================
-//  Go home
-// ============================================================
 void goHome() {
   moveShoulder(HOME_SHOULDER);
   moveElbow(HOME_ELBOW);
@@ -82,64 +78,61 @@ void goHome() {
 }
 
 // ============================================================
-//  PICK  —  pixel (px, py) from 640×480 camera frame
+//  PICK  px py drop_base drop_shoulder drop_elbow
 //
-//  Mapping:
-//    px 0–640  →  base  160°–20°  (left=far right of arm)
-//    py 0–480  →  reach  (top=far, bottom=close)
-//
-//  Adjust DROP_* constants above to set where objects land.
+//  - px/py  : pixel coördinaten van het object (640×480)
+//  - drop_* : bakje-positie, bepaald door config.txt via Pi
 // ============================================================
-void doPick(int px, int py) {
-  // --- Map pixel to arm angles ---
+void doPick(int px, int py, int dropBase, int dropShoulder, int dropElbow) {
+  // Pixel → arm hoeken
   int targetBase     = map(px, 0, 640, 160, 20);
-  int targetShoulder = map(py, 0, 480, 120,  55);  // far → raised, close → lower
+  int targetShoulder = map(py, 0, 480, 120,  55);
   int targetElbow    = map(py, 0, 480,  50, 110);
 
   targetBase     = constrain(targetBase,     BASE_MIN,     BASE_MAX);
   targetShoulder = constrain(targetShoulder, SHOULDER_MIN, SHOULDER_MAX);
   targetElbow    = constrain(targetElbow,    ELBOW_MIN,    ELBOW_MAX);
 
-  // 1. Open gripper
+  // 1. Gripper open
   moveGripper(GRIPPER_OPEN);
 
-  // 2. Rotate base first (arm up)
+  // 2. Arm omhoog naar home, dan naar object draaien
   moveShoulder(HOME_SHOULDER);
   moveElbow(HOME_ELBOW);
   moveBase(targetBase);
 
-  // 3. Approach — move to position slightly above object
+  // 3. Aanvliegen (iets boven object)
   moveShoulder(targetShoulder + 15);
   moveElbow(targetElbow);
 
-  // 4. Lower onto object
+  // 4. Zakken op object
   moveShoulder(targetShoulder);
   delay(150);
 
-  // 5. Grab
+  // 5. Grijpen
   moveGripper(GRIPPER_CLOSED);
 
-  // 6. Lift
+  // 6. Optillen
   moveShoulder(targetShoulder + 20);
 
-  // 7. Swing to drop-off
-  moveBase(DROP_BASE);
-  moveShoulder(DROP_SHOULDER);
-  moveElbow(DROP_ELBOW);
+  // 7. Draaien naar bakje
+  moveBase(dropBase);
+  moveShoulder(dropShoulder);
+  moveElbow(dropElbow);
   delay(200);
 
-  // 8. Release
+  // 8. Loslaten
   moveGripper(GRIPPER_OPEN);
   delay(200);
 
-  // 9. Go home
+  // 9. Terug home
   goHome();
 
   Serial.println("DONE");
 }
 
 // ============================================================
-//  JOG  —  direction + speed
+//  JOG
 // ============================================================
 void doJog(const char* dir, int spd) {
   int step = map(spd, 1, 100, 2, 12);
@@ -154,16 +147,22 @@ void doJog(const char* dir, int spd) {
 }
 
 // ============================================================
-//  Serial command parser
+//  Command parser
 // ============================================================
 void processCommand(String cmd) {
   cmd.trim();
   if (cmd.length() == 0) return;
 
   if (cmd.startsWith("PICK") && !isStopped) {
-    int px, py;
-    if (sscanf(cmd.c_str(), "PICK %d %d", &px, &py) == 2) {
-      doPick(px, py);
+    int px, py, db, ds, de;
+    // Nieuwe syntax: PICK px py drop_base drop_shoulder drop_elbow
+    if (sscanf(cmd.c_str(), "PICK %d %d %d %d %d", &px, &py, &db, &ds, &de) == 5) {
+      doPick(px, py, db, ds, de);
+    } else {
+      // Backwards compat: PICK px py (gebruik fallback drop)
+      if (sscanf(cmd.c_str(), "PICK %d %d", &px, &py) == 2) {
+        doPick(px, py, 170, 80, 100);
+      }
     }
 
   } else if (cmd.startsWith("JOG") && !isStopped) {
@@ -174,20 +173,18 @@ void processCommand(String cmd) {
   } else if (cmd.startsWith("GRIPPER") && !isStopped) {
     char action[10];
     sscanf(cmd.c_str(), "GRIPPER %9s", action);
-    if (String(action) == "open")  moveGripper(GRIPPER_OPEN);
-    else                            moveGripper(GRIPPER_CLOSED);
+    if (String(action) == "open") moveGripper(GRIPPER_OPEN);
+    else                          moveGripper(GRIPPER_CLOSED);
     Serial.println("OK");
 
   } else if (cmd.startsWith("SPEED")) {
     int s;
-    if (sscanf(cmd.c_str(), "SPEED %d", &s) == 1) {
+    if (sscanf(cmd.c_str(), "SPEED %d", &s) == 1)
       moveSpeed = constrain(s, 1, 100);
-    }
     Serial.println("OK");
 
   } else if (cmd == "STOP") {
     isStopped = true;
-    // Detach servos so they go limp — prevents damage on hard stop
     servoBase.detach();
     servoShoulder.detach();
     servoElbow.detach();
@@ -196,7 +193,6 @@ void processCommand(String cmd) {
 
   } else if (cmd == "RESUME") {
     isStopped = false;
-    // Re-attach and write last known positions
     servoBase.attach(PIN_BASE);         servoBase.write(posBase);
     servoShoulder.attach(PIN_SHOULDER); servoShoulder.write(posShoulder);
     servoElbow.attach(PIN_ELBOW);       servoElbow.write(posElbow);
@@ -217,13 +213,11 @@ String inputBuffer = "";
 
 void setup() {
   Serial.begin(9600);
-
   servoBase.attach(PIN_BASE);
   servoShoulder.attach(PIN_SHOULDER);
   servoElbow.attach(PIN_ELBOW);
   servoGripper.attach(PIN_GRIPPER);
 
-  // Boot sequence: move to home slowly
   servoGripper.write(GRIPPER_OPEN);   delay(400);
   servoElbow.write(HOME_ELBOW);       delay(600);
   servoShoulder.write(HOME_SHOULDER); delay(600);

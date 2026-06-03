@@ -1,0 +1,27 @@
+# ============================================================
+#  EEZYbotARM MK3 — Configuratie
+# ============================================================
+
+# Afstand camera tot bureau (cm)
+camera_height = 30
+
+# Werkvlak dat de camera ziet (cm)
+workspace_width  = 40
+workspace_depth  = 35
+
+# Bakje-posities: base_hoek, schouder, elbow  (graden)
+# Voeg meer regels toe voor meer kleur/vorm combinaties
+# Formaat: bin_KLEUR_VORM = base,shoulder,elbow
+# Gebruik "any" als wildcard voor kleur of vorm
+
+bin_red_any      = 170, 80, 100
+bin_blue_any     = 150, 80, 100
+bin_green_any    = 130, 80, 100
+bin_yellow_any   = 110, 80, 100
+
+bin_any_cube     = 170, 80, 100
+bin_any_sphere   = 150, 80, 100
+bin_any_cylinder = 130, 80, 100
+
+# Fallback als geen specifieke bin gevonden wordt
+bin_default      = 90,  80, 100
