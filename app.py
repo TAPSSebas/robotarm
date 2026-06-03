@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, render_template, Response, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import cv2
 import numpy as np
@@ -106,32 +106,63 @@ COLOR_RANGES = {
 }
 
 # ============================================================
-#  Vorm detectie
+#  Vorm detectielabel = f"{color} {detected_shape}"
 # ============================================================
 def classify_shape(contour):
     area = cv2.contourArea(contour)
-    if area < 100:
-        return "unknown"
-    peri = cv2.arcLength(contour, True)
-    approx = cv2.approxPolyDP(contour, 0.04 * peri, True)
-    vertices = len(approx)
-    circularity = (4 * np.pi * area / (peri * peri)) if peri > 0 else 0
-    x, y, w, h = cv2.boundingRect(contour)
-    aspect = w / float(h) if h > 0 else 1.0
 
-    if circularity > 0.82:
-        return "sphere"
-    elif vertices == 4 and 0.80 <= aspect <= 1.25:
-        return "cube"
-    elif vertices == 4 or (vertices > 4 and circularity < 0.75):
-        return "cylinder"
-    else:
+    if area < 1000:
         return "unknown"
+
+    peri = cv2.arcLength(contour, True)
+
+    if peri <= 0:
+        return "unknown"
+
+    approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+
+    vertices = len(approx)
+
+    circularity = 4 * np.pi * area / (peri * peri)
+
+    x, y, w, h = cv2.boundingRect(contour)
+
+    aspect = w / float(h)
+
+    rect_area = w * h
+
+    fill_ratio = area / float(rect_area)
+
+    #
+    # SPHERE
+    #
+    if circularity > 0.88:
+        return "sphere"
+
+    #
+    # CUBE
+    #
+    if (
+        0.85 <= aspect <= 1.15
+        and fill_ratio > 0.75
+        and vertices <= 8
+    ):
+        return "cube"
+
+    #
+    # CYLINDER
+    #
+    if vertices > 8 or circularity > 0.70:
+        return "cylinder"
+
+    return "unknown"
 
 def shape_matches(contour, target_shape):
     if target_shape == "any":
         return True
-    return classify_shape(contour) == target_shape
+
+    detected = classify_shape(contour)
+    return detected == target_shape
 
 # ============================================================
 #  Object detectie (kleur + vorm)
@@ -171,7 +202,7 @@ def detect_all_objects(frame):
     for obj in found:
         too_close = False
         for u in unique:
-            if abs(obj["cx"] - u["cx"]) < 30 and abs(obj["cy"] - u["cy"]) < 30:
+            if abs(obj["cx"] - u["cx"]) < 60 and abs(obj["cy"] - u["cy"]) < 60:
                 too_close = True
                 break
         if not too_close:
@@ -218,7 +249,16 @@ def generate_video():
         for cnt in contours:
             x, y, w, h = cv2.boundingRect(cnt)
             detected_shape = classify_shape(cnt)
-            label = f"{color} {detected_shape}"
+            area = cv2.contourArea(cnt)
+            peri = cv2.arcLength(cnt, True)
+
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+
+            vertices = len(approx)
+
+            circularity = 4 * np.pi * area / (peri * peri)
+
+            label = f"{detected_shape} V:{vertices} C:{circularity:.2f}"
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             cv2.putText(frame, label, (x, y - 8),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
@@ -370,6 +410,29 @@ def index():
 def video():
     return Response(generate_video(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# ===== FAVICONS =====
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory('templates', 'favicon.ico')
+
+@app.route('/favicon-16x16.png')
+def favicon16():
+    return send_from_directory('templates', 'favicon-16x16.png')
+
+@app.route('/favicon-32x32.png')
+def favicon32():
+    return send_from_directory('templates', 'favicon-32x32.png')
+
+@app.route('/apple-touch-icon.png')
+def apple_icon():
+    return send_from_directory('templates', 'apple-touch-icon.png')
+
+@app.route('/site.webmanifest')
+def manifest():
+    return send_from_directory('templates', 'site.webmanifest')
+
 
 @app.route('/api/target', methods=['POST'])
 def set_target():
