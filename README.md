@@ -20,7 +20,7 @@ A Raspberry Pi powered robot arm controller with live camera feed, color & shape
 - Raspberry Pi 4 (2GB+ recommended)
 - Raspberry Pi Camera Module v2
 - Arduino Uno
-- EEZYbotARM MK3 (3D printed)
+- [EEZYbotARM MK3](https://www.thingiverse.com/thing:2838859) (3D printed)
 - USB cable (Pi to Arduino)
 - Motors/drivers (see Arduino section)
 
