@@ -249,18 +249,6 @@ The Pi communicates with the Arduino over USB serial at 9600 baud. These are the
 
 ---
 
-## Updating the code
-
-After making changes on the Pi:
-
-```bash
-cd ~/robotarm
-git add .
-git commit -m "describe what you changed"
-git push
-```
-
----
 
 ## Credits
 
